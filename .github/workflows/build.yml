@@ -1,0 +1,51 @@
+name: 自动打包
+
+# 什么时候自动打包：
+#   1. 你每次把代码推送到 main 分支
+#   2. 你在网页上手动点一下 "Run workflow"
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 打包 ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            artifact: DeskPet-Windows
+          - os: macos-latest
+            label: macOS
+            artifact: DeskPet-macOS
+
+    steps:
+      - name: 取出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 安装依赖
+        run: npm install
+
+      - name: 打包成安装包
+        run: npx electron-builder --publish never
+        env:
+          # 没有苹果开发者证书，跳过签名，生成未签名的安装包
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: 上传安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+          if-no-files-found: warn

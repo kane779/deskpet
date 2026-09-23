@@ -1,0 +1,17 @@
+# 依赖和打包产物，不需要上传到 GitHub
+node_modules/
+dist/
+release/
+
+# 系统生成的杂项文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 日志与临时文件
+*.log
+npm-debug.log*
+*.tmp
+
+# 本地调试时顺手生成的临时文件（下划线开头的都不上传）
+_*
