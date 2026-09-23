@@ -1,4 +1,4 @@
-# 一键重新生成 README 里的界面截图
+﻿# 一键重新生成 README 里的界面截图
 # 用法：在本文件上右键 → 使用 PowerShell 运行
 # 会用到 Microsoft Edge 的「无头模式」渲染界面，不需要打开真正的程序。
 
@@ -11,10 +11,18 @@ $demoUrl = 'file:///' + $demoPath
 
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
-$edge = @(
-  (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'),
-  (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe')
-) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+$candidates = @()
+if ($env:ProgramFiles) {
+  $candidates += (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe')
+}
+if (${env:ProgramFiles(x86)}) {
+  $candidates += (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe')
+}
+if ($env:LOCALAPPDATA) {
+  $candidates += (Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\Application\msedge.exe')
+}
+
+$edge = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 if (-not $edge) {
   Write-Host '没找到 Microsoft Edge，无法截图。' -ForegroundColor Red
@@ -47,12 +55,26 @@ foreach ($shot in $shots) {
 }
 
 # 合成封面图（需要 Python + Pillow）
-$py = Get-Command python -ErrorAction SilentlyContinue
-if ($py) {
-  & python (Join-Path $root 'tools\compose-cover.py')
+# 注意：Windows 自带的 python.exe 可能只是应用商店的占位别名，
+# 所以要真的执行一次 --version 确认能跑。
+$python = $null
+foreach ($cmd in @('python', 'python3', 'py')) {
+  try {
+    $ver = & $cmd --version 2>&1 | Out-String
+    if ($ver -match 'Python\s+3') {
+      $python = $cmd
+      break
+    }
+  } catch {
+    # 这个命令不存在，试下一个
+  }
+}
+
+if ($python) {
+  & $python (Join-Path $root 'tools\compose-cover.py')
 } else {
-  Write-Host '没找到 python，跳过封面图合成（00-悬浮球与面板.png）。' -ForegroundColor Yellow
-  Write-Host '装好 Python 与 Pillow 后单独运行 tools\compose-cover.py 即可。'
+  Write-Host '没找到可用的 Python，跳过封面图合成（00-悬浮球与面板.png）。' -ForegroundColor Yellow
+  Write-Host '装好 Python 3 与 Pillow 后，单独运行：python tools\compose-cover.py'
 }
 
 Write-Host ''
