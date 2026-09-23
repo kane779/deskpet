@@ -403,6 +403,7 @@ function renderSettings() {
   if (panel.hidden) return;
 
   $('set-autostart').checked = !!state.settings.launchAtLogin;
+  $('set-ball').checked = state.settings.ballVisible !== false;
   $('set-limit').value = state.settings.clipboardLimit || 200;
   $('set-shortcut').value = shortcutLabel(state.settings.shortcut);
   $('set-datapath').textContent = state.info.dataFile || '—';
@@ -501,7 +502,7 @@ function bindEvents() {
     memoMenu.hidden = true;
 
     if (action === 'create') {
-      const name = await openModal({ title: '新建备忘录', placeholder: '例如：工作 / 购物 / 学习', okText: '创建' });
+      const name = await openModal({ title: '新建待办', placeholder: '例如：工作 / 购物 / 学习', okText: '创建' });
       if (name == null) return;
       const res = await act(api.addMemo(String(name).trim() || '新备忘录'));
       const added = res && res.data && res.data.memos[res.data.memos.length - 1];
@@ -565,6 +566,10 @@ function bindEvents() {
 
   $('set-autostart').addEventListener('change', (event) => {
     act(api.updateSettings({ launchAtLogin: event.target.checked }));
+  });
+
+  $('set-ball').addEventListener('change', (event) => {
+    act(api.updateSettings({ ballVisible: event.target.checked }));
   });
 
   $('set-limit').addEventListener('change', (event) => {

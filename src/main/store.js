@@ -35,9 +35,10 @@ function defaults() {
       launchAtLogin: false,
       clipboardEnabled: true,
       clipboardLimit: 200,
+      ballVisible: true,
       shortcut: 'CommandOrControl+Shift+V'
     },
-    window: { x: null, y: null },
+    window: { x: null, y: null, ballX: null, ballY: null },
     memos: [],
     todos: [],
     clips: []

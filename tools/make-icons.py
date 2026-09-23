@@ -1,12 +1,15 @@
 """
 DeskPet 图标生成脚本
 ---------------------------------------------------------------
-运行一次即可生成 assets 目录下的图标文件：
-  icon.png            512x512，应用图标（安装包、桌面快捷方式、窗口）
-  tray.png            32x32，托盘图标，浅色，用于 Windows
-  trayTemplate.png    32x32，托盘图标，纯黑透明，用于 macOS 菜单栏
+从设计稿 design/ball-icon-source.png 生成 assets 下所有图标：
+  icon.png    512x512   应用图标（安装包、桌面快捷方式、窗口任务栏）
+  tray.png     32x32    托盘图标（Windows 与 macOS 菜单栏共用）
+  ball.png    256x256   桌面悬浮球
 
-想换图标风格？改下面的颜色常量后重新运行本脚本即可。
+处理逻辑：沿水平中线找出设计稿里那个圆形的边界 -> 按圆心裁成正方形
+-> 套一个圆形透明遮罩（把白色背景去掉）-> 缩放输出。
+
+换了新设计稿？直接替换 design/ball-icon-source.png 再运行本脚本即可。
 需要 Pillow：pip install Pillow
 """
 
@@ -15,151 +18,81 @@ import os
 from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT_DIR = os.path.normpath(os.path.join(HERE, "..", "assets"))
-os.makedirs(OUT_DIR, exist_ok=True)
+ROOT = os.path.normpath(os.path.join(HERE, ".."))
+SRC = os.path.join(ROOT, "design", "ball-icon-source.png")
+OUT_DIR = os.path.join(ROOT, "assets")
 
-SS = 4  # 超采样倍数：先画大图再缩小，边缘才平滑
-
-BG_TOP = (124, 152, 255)
-BG_BOTTOM = (72, 96, 214)
-ACCENT_DARK = (72, 96, 214, 255)
-WHITE = (255, 255, 255, 255)
-TRAY_LIGHT = (222, 225, 234, 255)
-TRAY_BLACK = (0, 0, 0, 255)
+SS = 4  # 超采样倍数：先放大处理再缩小，边缘才平滑
 
 
-def lerp(a, b, t):
-    return a + (b - a) * t
+def find_circle(img):
+    """
+    沿图片水平中线扫描，找出主体圆形的左右边缘。
+    用中线是因为那里只会穿过圆形本身，右上角的装饰短线不会干扰。
+    """
+    width, height = img.size
+    pixels = img.convert("RGB").load()
+    mid = height // 2
+
+    left = None
+    right = None
+    for x in range(width):
+        r, g, b = pixels[x, mid]
+        if (255 - r) + (255 - g) + (255 - b) > 60:
+            if left is None:
+                left = x
+            right = x
+
+    if left is None or right is None or right - left < 10:
+        return (width / 2, height / 2, min(width, height) / 2 - 2)
+
+    return ((left + right) / 2, mid, (right - left) / 2)
 
 
-def vertical_gradient(size, top, bottom):
-    """从上到下的线性渐变"""
-    img = Image.new("RGB", (size, size), top)
-    draw = ImageDraw.Draw(img)
-    for y in range(size):
-        t = y / max(1, size - 1)
-        draw.line(
-            [(0, y), (size, y)],
-            fill=(
-                int(lerp(top[0], bottom[0], t)),
-                int(lerp(top[1], bottom[1], t)),
-                int(lerp(top[2], bottom[2], t)),
-            ),
-        )
-    return img
+def make_circle(img, cx, cy, radius, size):
+    """按给定圆裁切，套圆形透明遮罩，输出 size×size 的 PNG"""
+    big = size * SS
+    scale = big / (radius * 2)
 
-
-def hline(draw, x1, x2, y, width, color):
-    """画一条圆头横线"""
-    draw.rounded_rectangle(
-        [int(x1), int(y - width / 2), int(x2), int(y + width / 2)],
-        radius=max(1, width // 2),
-        fill=color,
+    resized = img.resize(
+        (max(1, int(img.width * scale)), max(1, int(img.height * scale))),
+        Image.LANCZOS,
+    )
+    box = (
+        int(cx * scale - big / 2),
+        int(cy * scale - big / 2),
+        int(cx * scale + big / 2),
+        int(cy * scale + big / 2),
     )
 
+    cropped = resized.crop(box).convert("RGBA")
 
-def check_mark(draw, left, top, box, width, color):
-    """在一个方框内画对勾"""
-    draw.line(
-        [
-            (int(left + box * 0.24), int(top + box * 0.52)),
-            (int(left + box * 0.44), int(top + box * 0.72)),
-            (int(left + box * 0.78), int(top + box * 0.28)),
-        ],
-        fill=color,
-        width=max(2, width),
-        joint="curve",
-    )
+    mask = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, big - 1, big - 1], fill=255)
+    cropped.putalpha(mask)
 
-
-def draw_list_symbol(draw, size, rows=3, main_color=WHITE, accent_color=ACCENT_DARK):
-    """
-    应用图标里的"待办清单"符号：
-    第一行是已打钩的实心方框，其余是空方框。
-    """
-    top, bottom = 0.285, 0.715
-    step = (bottom - top) / max(1, rows - 1)
-
-    box = 0.118 * size
-    marker_cx = 0.355 * size
-    text_x1 = 0.482 * size
-    text_len = 0.200 * size
-    line_width = max(2, int(size * 0.040))
-    box_width = max(2, int(size * 0.026))
-
-    for index in range(rows):
-        cy = (top + index * step) * size
-        left = marker_cx - box / 2
-        box_top = cy - box / 2
-
-        if index == 0:
-            draw.rounded_rectangle(
-                [int(left), int(box_top), int(left + box), int(box_top + box)],
-                radius=int(box * 0.30),
-                fill=main_color,
-            )
-            check_mark(draw, left, box_top, box, int(box_width * 0.95), accent_color)
-        else:
-            draw.rounded_rectangle(
-                [int(left), int(box_top), int(left + box), int(box_top + box)],
-                radius=int(box * 0.30),
-                outline=main_color,
-                width=box_width,
-            )
-
-        length = text_len if index != rows - 1 else text_len * 0.72
-        hline(draw, text_x1, text_x1 + length, cy, line_width, main_color)
-
-
-def build_app_icon():
-    size = 512 * SS
-    icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    icon.paste(vertical_gradient(size, BG_TOP, BG_BOTTOM), (0, 0))
-
-    mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        [0, 0, size - 1, size - 1], radius=int(size * 0.225), fill=255
-    )
-    icon.putalpha(mask)
-
-    draw_list_symbol(ImageDraw.Draw(icon), size, rows=3)
-    return icon.resize((512, 512), Image.LANCZOS)
-
-
-def build_tray(color):
-    """
-    托盘图标要能在 16~32 像素下看清，所以只保留一个"带勾的方框"。
-    """
-    size = 128 * SS
-    tray = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(tray)
-
-    line_width = max(2, int(size * 0.080))
-    margin = int(size * 0.16)
-    box = size - margin * 2
-
-    draw.rounded_rectangle(
-        [margin, margin, size - margin, size - margin],
-        radius=int(size * 0.17),
-        outline=color,
-        width=line_width,
-    )
-    check_mark(draw, margin, margin, box, line_width, color)
-
-    return tray.resize((32, 32), Image.LANCZOS)
+    return cropped.resize((size, size), Image.LANCZOS)
 
 
 def main():
+    if not os.path.exists(SRC):
+        raise SystemExit(f"找不到设计稿：{SRC}")
+
+    source = Image.open(SRC).convert("RGB")
+    cx, cy, radius = find_circle(source)
+    print(f"设计稿 {source.size}，识别到圆形 圆心=({cx:.0f},{cy:.0f}) 半径={radius:.0f}")
+
     targets = [
-        ("icon.png", build_app_icon()),
-        ("tray.png", build_tray(TRAY_LIGHT)),
-        ("trayTemplate.png", build_tray(TRAY_BLACK)),
+        ("icon.png", 512),
+        ("tray.png", 32),
+        ("ball.png", 256),
     ]
 
-    for name, image in targets:
+    os.makedirs(OUT_DIR, exist_ok=True)
+    for name, size in targets:
         target = os.path.join(OUT_DIR, name)
-        image.save(target)
-        print("generated:", target)
+        make_circle(source, cx, cy, radius, size).save(target)
+        print("已生成", target)
 
 
 if __name__ == "__main__":

@@ -45,6 +45,12 @@ contextBridge.exposeInMainWorld('deskpet', {
   hideWindow: () => invoke('win:hide'),
   quitApp: () => invoke('app:quit'),
 
+  /* 悬浮球 */
+  getBallPosition: () => invoke('ball:position'),
+  moveBall: (x, y) => invoke('ball:move', x, y),
+  togglePanel: () => invoke('ball:toggle'),
+  hideBall: () => invoke('ball:hide'),
+
   /* 主进程主动推给界面的消息 */
   onDataChanged: (callback) => {
     ipcRenderer.on('data:changed', (_event, payload) => callback(payload));

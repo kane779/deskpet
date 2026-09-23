@@ -49,12 +49,11 @@
 
         <form class="add-form" id="todo-form">
           <input type="text" id="todo-input" class="input" placeholder="要做什么？按回车添加" autocomplete="off" maxlength="500" />
-          <button type="submit" class="btn btn-primary">添加</button>
+          <div class="add-form-foot">
+            <input type="datetime-local" id="todo-due" class="input input-due" title="给这条待办设个截止时间，到点会弹系统通知（可选）" />
+            <button type="submit" class="btn btn-primary">添加</button>
+          </div>
         </form>
-
-        <div class="row row-wrap">
-          <input type="datetime-local" id="todo-due" class="input input-due" title="给这条待办设个截止时间，到点会弹系统通知（可选）" />
-        </div>
 
         <div class="row">
           <button type="button" class="chip is-active" data-filter="active">进行中</button>
@@ -92,7 +91,7 @@
     </footer>
 
     <div class="popmenu" id="memo-menu" hidden>
-      <button type="button" data-action="create">新建备忘录</button>
+      <button type="button" data-action="create">新建待办</button>
       <button type="button" data-action="rename">重命名当前</button>
       <button type="button" data-action="delete">删除当前</button>
     </div>
@@ -108,6 +107,14 @@
       </div>
 
       <div class="sheet-body">
+        <div class="field">
+          <span class="field-label">显示桌面悬浮球</span>
+          <label class="switch">
+            <input type="checkbox" id="set-ball" />
+            <span class="switch-track"><span class="switch-knob"></span></span>
+          </label>
+        </div>
+
         <div class="field">
           <span class="field-label">开机自动启动</span>
           <label class="switch">

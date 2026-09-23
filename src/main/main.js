@@ -27,12 +27,15 @@ const TRAY_ICON = path.join(ASSETS, 'tray.png');
 const DEFAULT_SHORTCUT = 'CommandOrControl+Shift+V';
 const WIN_WIDTH = 360;
 const WIN_HEIGHT = 548;
+const BALL_SIZE = 64;
+const BALL_GAP = 12;
 const CLIP_TEXT_LIMIT = 20000;
 
 let win = null;
+let ballWin = null;
 let tray = null;
 let reminderTimer = null;
-let moveTimer = null;
+let ballMoveTimer = null;
 let quitting = false;
 
 /* ------------------------------------------------------------------ */
@@ -65,36 +68,29 @@ function toast(message) {
 /* 窗口                                                                */
 /* ------------------------------------------------------------------ */
 
-function clampToScreen(x, y) {
+function clampToScreen(x, y, fallbackX, fallbackY) {
   const displays = screen.getAllDisplays();
   const visible = displays.some((display) => {
     const area = display.workArea;
     return (
       x >= area.x - 60 &&
       y >= area.y - 60 &&
-      x < area.x + area.width &&
-      y < area.y + area.height
+      x + 40 < area.x + area.width &&
+      y + 40 < area.y + area.height
     );
   });
-  if (visible) return { x, y };
-
-  const area = screen.getPrimaryDisplay().workAreaSize;
-  return { x: area.width - WIN_WIDTH - 28, y: area.height - WIN_HEIGHT - 28 };
+  if (visible) return { x: Math.round(x), y: Math.round(y) };
+  return { x: Math.round(fallbackX), y: Math.round(fallbackY) };
 }
 
 function createWindow() {
-  const data = store.get();
   const area = screen.getPrimaryDisplay().workAreaSize;
-
-  const rawX = Number.isFinite(data.window.x) ? data.window.x : area.width - WIN_WIDTH - 28;
-  const rawY = Number.isFinite(data.window.y) ? data.window.y : area.height - WIN_HEIGHT - 28;
-  const pos = clampToScreen(Math.round(rawX), Math.round(rawY));
 
   win = new BrowserWindow({
     width: WIN_WIDTH,
     height: WIN_HEIGHT,
-    x: pos.x,
-    y: pos.y,
+    x: Math.round(area.width - WIN_WIDTH - 28),
+    y: Math.round(area.height - WIN_HEIGHT - 28),
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -126,19 +122,16 @@ function createWindow() {
   }
 
   win.once('ready-to-show', () => {
-    // 开机自启时带上 --hidden，静默待在托盘里，不打扰你
-    if (!process.argv.includes('--hidden')) {
-      win.show();
-    }
+    // 平时启动只露悬浮球，面板等用户点它（或按快捷键）再展开。
+    // 唯一例外：用户之前把悬浮球藏起来了，那就直接把面板显示出来，
+    // 免得他以为程序没启动成功。
+    if (store.get().settings.ballVisible === false) win.show();
   });
-
-  win.on('moved', scheduleSavePosition);
 
   win.on('close', (event) => {
     if (quitting) return;
-    // 关闭 = 收起到托盘。程序要继续在后台跑，否则到点没法提醒你
+    // 关闭 = 收起面板。程序要继续在后台跑，否则到点没法提醒你
     event.preventDefault();
-    savePositionNow();
     win.hide();
   });
 
@@ -147,48 +140,177 @@ function createWindow() {
   });
 }
 
-function scheduleSavePosition() {
-  if (moveTimer) clearTimeout(moveTimer);
-  moveTimer = setTimeout(savePositionNow, 400);
+/** 桌面悬浮球：左键展开面板，右键把自己藏起来，可以随便拖 */
+function createBall() {
+  const data = store.get();
+  const area = screen.getPrimaryDisplay().workAreaSize;
+
+  const fallbackX = area.width - BALL_SIZE - 30;
+  const fallbackY = Math.round(area.height * 0.42);
+  const rawX = Number.isFinite(data.window.ballX) ? data.window.ballX : fallbackX;
+  const rawY = Number.isFinite(data.window.ballY) ? data.window.ballY : fallbackY;
+  const pos = clampToScreen(rawX, rawY, fallbackX, fallbackY);
+
+  ballWin = new BrowserWindow({
+    width: BALL_SIZE,
+    height: BALL_SIZE,
+    x: pos.x,
+    y: pos.y,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    hasShadow: false,
+    title: 'DeskPet 悬浮球',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      spellcheck: false
+    }
+  });
+
+  ballWin.setAlwaysOnTop(true, 'floating');
+  ballWin.loadFile(path.join(ROOT, 'src', 'renderer', 'ball.html'));
+
+  if (process.platform === 'darwin') {
+    ballWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+
+  ballWin.once('ready-to-show', () => {
+    if (data.settings.ballVisible !== false) ballWin.show();
+  });
+
+  ballWin.on('moved', scheduleSaveBallPosition);
+
+  ballWin.on('closed', () => {
+    ballWin = null;
+  });
 }
 
-function savePositionNow() {
-  if (!win || win.isDestroyed()) return;
-  if (moveTimer) {
-    clearTimeout(moveTimer);
-    moveTimer = null;
+function scheduleSaveBallPosition() {
+  if (ballMoveTimer) clearTimeout(ballMoveTimer);
+  ballMoveTimer = setTimeout(saveBallPositionNow, 400);
+}
+
+function saveBallPositionNow() {
+  if (!ballWin || ballWin.isDestroyed()) return;
+  if (ballMoveTimer) {
+    clearTimeout(ballMoveTimer);
+    ballMoveTimer = null;
   }
-  const [x, y] = win.getPosition();
+  const [x, y] = ballWin.getPosition();
   const d = store.get();
-  d.window = { x, y };
+  d.window.ballX = x;
+  d.window.ballY = y;
   store.touch();
 }
 
-function showWindow() {
+/** 把面板摆到悬浮球旁边：优先左侧，左边放不下就换到右侧 */
+function placePanelNearBall() {
   if (!win || win.isDestroyed()) return;
+  if (!ballWin || ballWin.isDestroyed() || !ballWin.isVisible()) return;
+
+  const [bx, by] = ballWin.getPosition();
+  const display = screen.getDisplayNearestPoint({
+    x: Math.round(bx + BALL_SIZE / 2),
+    y: Math.round(by + BALL_SIZE / 2)
+  });
+  const area = display.workArea;
+
+  let x = bx - WIN_WIDTH - BALL_GAP;
+  if (x < area.x + 8) x = bx + BALL_SIZE + BALL_GAP;
+  x = Math.min(Math.max(x, area.x + 8), area.x + area.width - WIN_WIDTH - 8);
+
+  let y = Math.round(by + BALL_SIZE / 2 - WIN_HEIGHT / 2);
+  y = Math.min(Math.max(y, area.y + 8), area.y + area.height - WIN_HEIGHT - 8);
+
+  win.setPosition(Math.round(x), Math.round(y));
+}
+
+/** 展开面板。tab 传 'clip' 就直接停在剪贴板页 */
+function showPanel(tab) {
+  if (!win || win.isDestroyed()) return;
+
+  placePanelNearBall();
   if (!win.isVisible()) win.show();
   win.setAlwaysOnTop(true, 'floating');
   win.focus();
-}
 
-function toggleWindow() {
-  if (!win || win.isDestroyed()) return;
-  if (win.isVisible()) {
-    win.hide();
-  } else {
-    showWindow();
-  }
-}
-
-/** 快捷键：显示面板并切到剪贴板页 */
-function revealClipboardTab() {
-  showWindow();
-  if (!win || win.isDestroyed()) return;
+  if (!tab) return;
   const send = () => {
-    if (win && !win.isDestroyed()) win.webContents.send('switch-tab', 'clip');
+    if (win && !win.isDestroyed()) win.webContents.send('switch-tab', tab);
   };
   if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send);
   else send();
+}
+
+/** 面板开着就收起，收着就展开 */
+function togglePanel() {
+  if (!win || win.isDestroyed()) return;
+  if (win.isVisible()) win.hide();
+  else showPanel();
+}
+
+function showBall() {
+  const data = store.get();
+  if (data.settings.ballVisible === false) {
+    data.settings.ballVisible = true;
+    store.touch();
+    setImmediate(refreshTrayMenu);
+    broadcast();
+  }
+  if (ballWin && !ballWin.isDestroyed() && !ballWin.isVisible()) {
+    ballWin.show();
+    ballWin.setAlwaysOnTop(true, 'floating');
+  }
+}
+
+function hideBall() {
+  const data = store.get();
+  data.settings.ballVisible = false;
+  store.touch();
+
+  if (ballWin && !ballWin.isDestroyed()) ballWin.hide();
+  if (win && !win.isDestroyed()) win.hide();
+
+  setImmediate(refreshTrayMenu);
+  broadcast();
+
+  // 提醒一句怎么找回来，免得以为程序不见了
+  if (Notification.isSupported()) {
+    try {
+      new Notification({
+        title: 'DeskPet 悬浮球已隐藏',
+        body: `按 ${shortcutLabel()} 随时呼出，也可以右键右下角托盘图标。`,
+        icon: ICON
+      }).show();
+    } catch (err) {
+      console.error('[ball] 通知失败：', err);
+    }
+  }
+}
+
+/** 全局快捷键：把悬浮球和面板一起叫出来，并停在剪贴板页 */
+function revealPanel() {
+  showBall();
+  showPanel('clip');
+}
+
+/** 把 CommandOrControl 这类写法换成用户看得懂的名字 */
+function shortcutLabel() {
+  const accel = store.get().settings.shortcut || DEFAULT_SHORTCUT;
+  const isMac = process.platform === 'darwin';
+  return accel
+    .replace('CommandOrControl', isMac ? 'Cmd' : 'Ctrl')
+    .replace('CmdOrCtrl', isMac ? 'Cmd' : 'Ctrl');
 }
 
 /* ------------------------------------------------------------------ */
@@ -196,35 +318,45 @@ function revealClipboardTab() {
 /* ------------------------------------------------------------------ */
 
 function createTray() {
-  // macOS 菜单栏用"模板图"，系统会自动跟随浅色/深色模式反色
-  const trayPath =
-    process.platform === 'darwin' ? path.join(ASSETS, 'trayTemplate.png') : TRAY_ICON;
-
-  let image = nativeImage.createFromPath(trayPath);
-  if (image.isEmpty()) image = nativeImage.createFromPath(TRAY_ICON);
+  let image = nativeImage.createFromPath(TRAY_ICON);
   if (image.isEmpty()) image = nativeImage.createFromPath(ICON);
   if (image.isEmpty()) image = nativeImage.createEmpty();
-
-  if (process.platform === 'darwin' && !image.isEmpty()) {
-    image.setTemplateImage(true);
-  }
 
   tray = new Tray(image);
   tray.setToolTip('DeskPet · 桌面小助手');
   refreshTrayMenu();
 
-  // Windows / Linux：左键单击切换面板显示。Mac 上交给菜单处理
+  // Windows / Linux：左键单击 = 显示悬浮球并收起/展开面板。Mac 交给菜单
   if (process.platform !== 'darwin') {
-    tray.on('click', () => toggleWindow());
+    tray.on('click', () => {
+      showBall();
+      togglePanel();
+    });
   }
 }
 
 function refreshTrayMenu() {
   if (!tray) return;
   const settings = store.get().settings;
+  const ballVisible = settings.ballVisible !== false;
 
   const menu = Menu.buildFromTemplate([
-    { label: '显示 / 收起面板', click: () => toggleWindow() },
+    {
+      label: '显示 / 收起面板',
+      click: () => {
+        showBall();
+        togglePanel();
+      }
+    },
+    {
+      label: '显示悬浮球',
+      type: 'checkbox',
+      checked: ballVisible,
+      click: (item) => {
+        if (item.checked) showBall();
+        else hideBall();
+      }
+    },
     { type: 'separator' },
     {
       label: '自动记录剪贴板',
@@ -267,7 +399,7 @@ function registerShortcut() {
 
   const accelerator = store.get().settings.shortcut || DEFAULT_SHORTCUT;
   try {
-    return globalShortcut.register(accelerator, revealClipboardTab);
+    return globalShortcut.register(accelerator, revealPanel);
   } catch (err) {
     console.error('[shortcut] 注册失败：', err);
     return false;
@@ -365,7 +497,7 @@ function notifyTodo(text) {
       body,
       icon: ICON
     });
-    notification.on('click', () => showWindow());
+    notification.on('click', () => showPanel());
     notification.show();
   } catch (err) {
     console.error('[reminder] 弹出通知失败：', err);
@@ -453,6 +585,16 @@ function updateSettings(patch) {
   store.touch();
 
   if ('clipboardEnabled' in changes) startClipboardWatcher();
+
+  if ('ballVisible' in changes) {
+    if (changes.ballVisible === false) {
+      if (ballWin && !ballWin.isDestroyed()) ballWin.hide();
+      if (win && !win.isDestroyed()) win.hide();
+    } else if (ballWin && !ballWin.isDestroyed()) {
+      ballWin.show();
+      ballWin.setAlwaysOnTop(true, 'floating');
+    }
+  }
 
   if ('shortcut' in changes) {
     const registered = registerShortcut();
@@ -663,10 +805,7 @@ function registerIpc() {
   /* ---------------- 窗口 ---------------- */
 
   ipcMain.handle('win:hide', () => {
-    if (win && !win.isDestroyed()) {
-      savePositionNow();
-      win.hide();
-    }
+    if (win && !win.isDestroyed()) win.hide();
     return ok();
   });
 
@@ -674,6 +813,30 @@ function registerIpc() {
     quitting = true;
     app.quit();
     return ok();
+  });
+
+  /* ---------------- 悬浮球 ---------------- */
+
+  ipcMain.handle('ball:toggle', () => {
+    togglePanel();
+    return ok();
+  });
+
+  ipcMain.handle('ball:hide', () => {
+    hideBall();
+    return ok();
+  });
+
+  ipcMain.handle('ball:move', (_event, x, y) => {
+    if (ballWin && !ballWin.isDestroyed()) {
+      ballWin.setPosition(Math.round(Number(x) || 0), Math.round(Number(y) || 0));
+    }
+    return ok();
+  });
+
+  ipcMain.handle('ball:position', () => {
+    const pos = ballWin && !ballWin.isDestroyed() ? ballWin.getPosition() : [0, 0];
+    return { ok: true, x: pos[0], y: pos[1], data: publicData() };
   });
 }
 
@@ -686,13 +849,19 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => showWindow());
-
-  app.on('window-all-closed', () => {
-    // 故意留空：窗口收起后程序继续待在托盘里，这样才能到点提醒你
+  app.on('second-instance', () => {
+    showBall();
+    showPanel();
   });
 
-  app.on('activate', () => showWindow());
+  app.on('window-all-closed', () => {
+    // 故意留空：面板收起后程序继续待在托盘里，这样才能到点提醒你
+  });
+
+  app.on('activate', () => {
+    showBall();
+    showPanel();
+  });
 
   app.on('before-quit', () => {
     // 系统关机、任务管理器结束进程等场景也会走到这里，
@@ -718,6 +887,7 @@ if (!gotTheLock) {
     registerIpc();
     applyLoginItem();
     createWindow();
+    createBall();
     createTray();
 
     const shortcutReady = registerShortcut();

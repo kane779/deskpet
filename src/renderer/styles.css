@@ -167,6 +167,31 @@ button, input, select { font-family: inherit; }
 
 .spacer { flex: 1; }
 
+/* 添加待办的表单：输入框独占一行，日期与「添加」按钮并排在下一行，
+   按钮自然落在最右侧，不会跟输入框挤在一起 */
+.add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+}
+
+.add-form-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.add-form-foot .input-due {
+  flex: 1;
+  min-width: 0;
+}
+
+.add-form-foot .btn {
+  flex: none;
+  padding: 0 16px;
+}
+
 /* ---------------- 控件 ---------------- */
 
 .input,
