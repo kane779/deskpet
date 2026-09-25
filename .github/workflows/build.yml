@@ -1,12 +1,18 @@
 name: 自动打包
 
-# 什么时候自动打包：
-#   1. 你每次把代码推送到 main 分支
-#   2. 你在网页上手动点一下 "Run workflow"
+# 什么时候会触发：
+#   1. 把代码推送到 main 分支            → 打包，产出可下载的 Artifacts
+#   2. 推送一个以 v 开头的标签（如 v1.0.0）→ 打包，并自动创建 Release 供别人下载
+#   3. 在仓库的 Actions 页面手动点 "Run workflow"
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
+
+# 默认只读权限，需要写权限的任务会单独声明（更安全）
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -25,10 +31,10 @@ jobs:
 
     steps:
       - name: 取出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: 安装 Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -42,10 +48,42 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: 上传安装包
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
           path: |
             dist/*.exe
             dist/*.dmg
           if-no-files-found: warn
+
+  # 只有推送 v 开头的标签时才跑这里。
+  # 作用：把两个平台的安装包汇总成一个 Release，这样别人不用登录 GitHub
+  # 就能直接下载（Artifacts 是必须登录才能下的，不方便分享）。
+  release:
+    name: 发布到 Releases
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 下载两个平台的安装包
+        uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 如果你已经在网页上手动建过这个版本的 Release，就直接把安装包补传上去；
+          # 没建过则自动创建。这样两种操作方式都不会冲突。
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/*.exe dist/*.dmg --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "DeskPet $GITHUB_REF_NAME" \
+              --generate-notes \
+              dist/*.exe dist/*.dmg
+          fi

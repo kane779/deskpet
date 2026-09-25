@@ -222,7 +222,20 @@ npm run dist
 1. 打开仓库页面 → 顶部 **Actions** 标签
 2. 点最新那次运行记录
 3. 页面底部 **Artifacts** 区域即可下载 `DeskPet-Windows` / `DeskPet-macOS`
-4. 想正式发布给别人下载，就新建一个 **Release**，把这些安装包拖进去当附件
+
+> 注意：**Artifacts 必须登录 GitHub 才能下载**，不适合直接分享给别人。要让任何人都能下载，用下面这种方式。
+
+### 打标签 → 自动创建发布页
+
+推送一个以 `v` 开头的标签，GitHub 会自动打包**并创建 Release 发布页**，任何人都能直接下载，**不需要 GitHub 账号**：
+
+```bash
+git push origin main      # 先推送代码
+git tag v1.0.0            # 打版本标签（每个版本号只能用一次）
+git push origin v1.0.0    # 推标签 → 触发打包 + 自动发布
+```
+
+等 5–10 分钟，打开仓库的 `/releases` 页面就能看到安装包了。
 
 ---
 
