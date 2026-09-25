@@ -76,14 +76,35 @@ jobs:
       - name: 创建 Release
         env:
           GH_TOKEN: ${{ github.token }}
+          # 这个任务没有检出代码，显式告诉 gh 操作哪个仓库
+          GH_REPO: ${{ github.repository }}
         run: |
-          # 如果你已经在网页上手动建过这个版本的 Release，就直接把安装包补传上去；
-          # 没建过则自动创建。这样两种操作方式都不会冲突。
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/*.exe dist/*.dmg --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" \
-              --title "DeskPet $GITHUB_REF_NAME" \
-              --generate-notes \
-              dist/*.exe dist/*.dmg
+          echo "tag = $GITHUB_REF_NAME     repo = $GITHUB_REPOSITORY"
+          echo "--- 下载到的文件 ---"
+          ls -la dist || echo "(dist 不存在)"
+
+          # 递归查找所有安装包，用数组收集（避免文件名里的空格被拆开）
+          FILES=()
+          while IFS= read -r -d '' f; do FILES+=("$f"); done < <(find dist -type f \( -name '*.exe' -o -name '*.dmg' \) -print0)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "::error::dist 里没有找到任何 .exe / .dmg 文件"
+            ls -laR dist || true
+            exit 1
           fi
+          echo "共找到 ${#FILES[@]} 个安装包："
+          printf '  %s\n' "${FILES[@]}"
+
+          # 如果你已经在网页上手动建过这个版本的 Release，就直接补传安装包；
+          # 没建过则自动创建。两种操作方式都不会冲突。
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            if ! OUT=$(gh release upload "$GITHUB_REF_NAME" "${FILES[@]}" --clobber 2>&1); then
+              echo "::error::gh release upload 失败：$(printf '%s' "$OUT" | tr '\n' ' ')"
+              exit 1
+            fi
+          else
+            if ! OUT=$(gh release create "$GITHUB_REF_NAME" --title "DeskPet $GITHUB_REF_NAME" --notes "下载对应你系统的安装包即可使用：Windows 用 .exe，macOS 用 .dmg。" "${FILES[@]}" 2>&1); then
+              echo "::error::gh release create 失败：$(printf '%s' "$OUT" | tr '\n' ' ')"
+              exit 1
+            fi
+          fi
+          echo "发布完成"
