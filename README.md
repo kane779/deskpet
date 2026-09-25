@@ -78,11 +78,11 @@
 
 | 你的系统 | 下载哪个文件 |
 | --- | --- |
-| Windows | `DeskPet Setup x.x.x.exe`（安装版，会创建桌面图标）<br>`DeskPet x.x.x.exe`（免安装绿色版，双击即用） |
+| Windows | `DeskPet-Setup-x.x.x.exe`（安装版，会创建桌面图标）<br>`DeskPet-Portable-x.x.x.exe`（免安装绿色版，双击即用） |
 | macOS（Apple 芯片 M1/M2/M3/M4） | `DeskPet-x.x.x-arm64.dmg` |
 | macOS（Intel 芯片） | `DeskPet-x.x.x-x64.dmg` |
 
-> 找不到 Releases？点仓库页面右侧的 **Releases**，或直接访问 `你的仓库地址/releases`。
+> 直接访问 **https://github.com/kane779/deskpet/releases** 即可，不需要 GitHub 账号。
 
 ### macOS 用户第一次打不开？
 

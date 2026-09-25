@@ -34,6 +34,7 @@
       ]
     },
     "nsis": {
+      "artifactName": "DeskPet-Setup-${version}.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
@@ -41,9 +42,13 @@
       "createStartMenuShortcut": true,
       "shortcutName": "DeskPet"
     },
+    "portable": {
+      "artifactName": "DeskPet-Portable-${version}.${ext}"
+    },
     "mac": {
       "icon": "assets/icon.png",
       "category": "public.app-category.productivity",
+      "artifactName": "DeskPet-${version}-${arch}.${ext}",
       "target": [
         { "target": "dmg", "arch": ["x64", "arm64"] }
       ]
