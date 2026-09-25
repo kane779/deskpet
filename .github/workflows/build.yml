@@ -41,6 +41,17 @@ jobs:
       - name: 安装依赖
         run: npm install
 
+      - name: 让安装包版本号与标签一致
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          # electron-builder 是用 package.json 里的 version 来给安装包命名的，
+          # 而发布页用的是 git 标签。两者不一致时（发布页叫 v1.0.1、包里却写着 1.0.0）
+          # 会让人困惑，所以这里把 package.json 的 version 同步成标签号
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version=process.env.TAG_NAME.replace(/^v/,'');fs.writeFileSync('package.json',JSON.stringify(p,null,2)+String.fromCharCode(10));console.log('package.json version ->',p.version);"
+
       - name: 打包成安装包
         run: npx electron-builder --publish never
         env:
